@@ -9,7 +9,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 
 export function App() {
   return (
-    <ThemeProvider defaultTheme="dark" storageKey="ai-coach-theme">
+    <ThemeProvider defaultTheme="light" storageKey="ai-coach-theme">
       <SessionProvider>
         <BrowserRouter>
           <AppLayout>

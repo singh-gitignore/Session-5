@@ -11,7 +11,13 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useSession } from "@/contexts/SessionContext";
-import { createSession, evaluateResponse, getRandomScenario, type Scenario } from "@/lib/supabase";
+import {
+  createSession,
+  evaluateResponse,
+  getAllScenarios,
+  getRandomScenario,
+  type Scenario,
+} from "@/lib/supabase";
 import {
   Bar,
   BarChart,
@@ -54,6 +60,12 @@ const qualityConfig = {
   score: { label: "Readiness", color: "var(--color-primary)" },
 };
 
+type RecommendedScenarioHint = {
+  category: Scenario["category"];
+  difficulty: Scenario["difficulty"];
+  reason?: string;
+};
+
 export function Simulation() {
   const navigate = useNavigate();
   const { sessionId, userProfile } = useSession();
@@ -63,12 +75,46 @@ export function Simulation() {
   const [isLoading, setIsLoading] = useState(true);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [error, setError] = useState("");
+  const [recommendedReason, setRecommendedReason] = useState("");
 
   useEffect(() => {
     const loadScenario = async () => {
       try {
         const difficulty = userProfile?.current_difficulty || "easy";
-        const loaded = await getRandomScenario(difficulty);
+        let loaded: Scenario | null = null;
+
+        const recommendationRaw = sessionStorage.getItem("recommendedScenarioHint");
+        if (recommendationRaw) {
+          try {
+            const recommendation = JSON.parse(recommendationRaw) as RecommendedScenarioHint;
+            const allScenarios = await getAllScenarios();
+            const strictMatches = allScenarios.filter(
+              (item) =>
+                item.category === recommendation.category && item.difficulty === recommendation.difficulty,
+            );
+            const categoryMatches = allScenarios.filter(
+              (item) => item.category === recommendation.category,
+            );
+
+            const pool = strictMatches.length > 0 ? strictMatches : categoryMatches;
+            if (pool.length > 0) {
+              loaded = pool[Math.floor(Math.random() * pool.length)];
+              if (recommendation.reason) {
+                setRecommendedReason(recommendation.reason);
+              }
+            }
+          } catch {
+            // Ignore invalid recommendation payload and fall back to random scenario.
+          } finally {
+            sessionStorage.removeItem("recommendedScenarioHint");
+          }
+        }
+
+        if (!loaded) {
+          loaded = await getRandomScenario(difficulty);
+          setRecommendedReason("");
+        }
+
         if (!loaded) {
           setError("No scenarios available");
           return;
@@ -138,6 +184,26 @@ export function Simulation() {
     { metric: "Actionability", score: /(next|plan|timeline|owner|follow-up)/i.test(response) ? 82 : 35 },
   ];
 
+  const confidenceSignals = useMemo(() => {
+    const clarity = Math.min(100, Math.round((sentenceCount / 5) * 100));
+    const ownership = /(i will|i can|i should|my plan|i propose)/i.test(response) ? 85 : 35;
+    const empathy = /(stakeholder|team|client|concern|impact|support)/i.test(response) ? 82 : 30;
+    const actionability = /(next|plan|timeline|owner|within|follow-up)/i.test(response) ? 88 : 35;
+
+    return [
+      { metric: "Clarity", score: clarity },
+      { metric: "Ownership", score: ownership },
+      { metric: "Empathy", score: empathy },
+      { metric: "Action", score: actionability },
+    ];
+  }, [response, sentenceCount]);
+
+  const confidenceMeter = useMemo(() => {
+    const avgSignal =
+      confidenceSignals.reduce((acc, item) => acc + item.score, 0) / confidenceSignals.length;
+    return Math.round((avgSignal + readiness) / 2);
+  }, [confidenceSignals, readiness]);
+
   const checklist = [
     { label: "Clear first action", done: /(first|immediate|start)/i.test(response) },
     { label: "Stakeholder awareness", done: /(stakeholder|team|manager|client|people)/i.test(response) },
@@ -188,17 +254,19 @@ export function Simulation() {
                     Simulation Studio
                   </Badge>
                   <Badge className={difficultyColors[scenario.difficulty]}>{scenario.difficulty.toUpperCase()}</Badge>
+                  {recommendedReason && <Badge variant="secondary">Recommended Path</Badge>}
                 </div>
                 <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{scenario.title}</h1>
                 <p className="inline-flex items-center gap-2 text-sm text-muted-foreground">
                   <CategoryIcon className="h-4 w-4" />
                   <span>{category.label}</span>
                 </p>
+                {recommendedReason && <p className="text-xs text-muted-foreground">{recommendedReason}</p>}
               </div>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 <MiniStat label="Target Words" value={String(targetWords)} icon={<Gauge className="h-4 w-4" />} />
                 <MiniStat label="Est. Time" value="8-12 min" icon={<Clock3 className="h-4 w-4" />} />
-                <MiniStat label="Readiness" value={`${readiness}%`} icon={<Sparkles className="h-4 w-4" />} />
+                <MiniStat label="Confidence" value={`${confidenceMeter}%`} icon={<Sparkles className="h-4 w-4" />} />
               </div>
             </div>
           </CardContent>
@@ -220,15 +288,15 @@ export function Simulation() {
           <Card>
             <CardHeader>
               <CardTitle>Live Response Quality</CardTitle>
-              <CardDescription>Your draft updates the score instantly.</CardDescription>
+              <CardDescription>Your draft updates confidence and signal scores instantly.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
                 <div className="mb-2 flex items-center justify-between text-sm">
-                  <span>Submission Readiness</span>
-                  <span className="font-semibold">{readiness}%</span>
+                  <span>Live Confidence Meter</span>
+                  <span className="font-semibold">{confidenceMeter}%</span>
                 </div>
-                <Progress value={readiness} className="h-2.5" />
+                <Progress value={confidenceMeter} className="h-2.5" />
               </div>
 
               <ChartContainer config={qualityConfig} className="h-[180px] w-full">
@@ -239,6 +307,18 @@ export function Simulation() {
                   <Bar dataKey="score" fill="var(--color-score)" radius={[8, 8, 2, 2]} />
                 </BarChart>
               </ChartContainer>
+
+              <div className="grid gap-2">
+                {confidenceSignals.map((signal) => (
+                  <div key={signal.metric} className="rounded-lg border border-border bg-card px-3 py-2">
+                    <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+                      <span>{signal.metric}</span>
+                      <span>{signal.score}%</span>
+                    </div>
+                    <Progress value={signal.score} className="h-2" />
+                  </div>
+                ))}
+              </div>
 
               <div className="grid gap-2">
                 {checklist.map((item) => (

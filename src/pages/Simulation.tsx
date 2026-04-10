@@ -17,7 +17,7 @@ import {
   getAllScenarios,
   getRandomScenario,
   type Scenario,
-} from "@/lib/supabase";
+} from "@/lib/frontend-data";
 import {
   Bar,
   BarChart,

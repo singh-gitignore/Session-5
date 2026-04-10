@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { getOrCreateUserProfile, updateUserProfile, type UserProfile } from "@/lib/supabase";
+import { getOrCreateUserProfile, updateUserProfile, type UserProfile } from "@/lib/frontend-data";
 
 interface SessionContextType {
   sessionId: string;

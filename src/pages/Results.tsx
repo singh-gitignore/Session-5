@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { EvaluationResponse, Scenario } from "@/lib/supabase";
+import type { EvaluationResponse, Scenario } from "@/lib/frontend-data";
 import {
   Bar,
   BarChart,
